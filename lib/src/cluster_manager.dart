@@ -79,12 +79,10 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   void _updateClusters() async {
-    List<Cluster<T>> mapMarkers = await compute(getMarkers, 0);
+    List<Cluster<T>> mapMarkers = await getMarkers();
 
-    final Set<Marker> markers = await compute((int value) async {
-      return Set.from(
-          await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
-    }, 0);
+    final Set<Marker> markers =
+        Set.from(await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
 
     updateMarkers(markers);
   }
@@ -110,7 +108,7 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   /// Retrieve cluster markers
-  Future<List<Cluster<T>>> getMarkers(int value) async {
+  Future<List<Cluster<T>>> getMarkers() async {
     if (_mapId == null) return List.empty();
 
     final LatLngBounds mapBounds = await GoogleMapsFlutterPlatform.instance
@@ -127,7 +125,9 @@ class ClusterManager<T extends ClusterItem> {
       return inflatedBounds.contains(i.location);
     }).toList();
 
-    if (stopClusteringZoom != null && _zoom >= stopClusteringZoom!)
+    if (stopClusteringZoom != null &&
+        _zoom >= stopClusteringZoom! &&
+        visibleItems.length < 200)
       return visibleItems.map((i) => Cluster<T>.fromItems([i])).toList();
 
     List<Cluster<T>> markers;
