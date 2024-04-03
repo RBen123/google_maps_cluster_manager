@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_cluster_manager/google_maps_cluster_manager.dart';
 import 'package:google_maps_cluster_manager/src/max_dist_clustering.dart';
-import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart'
+    hide Cluster;
 
 enum ClusterAlgorithm { GEOHASH, MAX_DIST }
 
@@ -78,10 +79,12 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   void _updateClusters() async {
-    List<Cluster<T>> mapMarkers = await getMarkers();
+    List<Cluster<T>> mapMarkers = await compute(getMarkers, 0);
 
-    final Set<Marker> markers =
-        Set.from(await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
+    final Set<Marker> markers = await compute((int value) async {
+      return Set.from(
+          await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
+    }, 0);
 
     updateMarkers(markers);
   }
@@ -107,7 +110,7 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   /// Retrieve cluster markers
-  Future<List<Cluster<T>>> getMarkers() async {
+  Future<List<Cluster<T>>> getMarkers(int value) async {
     if (_mapId == null) return List.empty();
 
     final LatLngBounds mapBounds = await GoogleMapsFlutterPlatform.instance
