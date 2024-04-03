@@ -10,6 +10,18 @@ import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 
 enum ClusterAlgorithm { GEOHASH, MAX_DIST }
 
+class ComputeClusterArgs {
+  ComputeClusterArgs({
+    required this.inputItems,
+    required this.markerItems,
+    this.level = 5
+  });
+
+  List<ClusterItem> inputItems;
+  List<Cluster<ClusterItem>> markerItems;
+  int level;
+}
+
 class MaxDistParams {
   final double epsilon;
 
@@ -18,18 +30,18 @@ class MaxDistParams {
 
 class ClusterManager<T extends ClusterItem> {
   ClusterManager(this._items, this.updateMarkers,
-      {Future<Marker> Function(Cluster<T>)? markerBuilder,
-      this.levels = const [1, 4.25, 6.75, 8.25, 11.5, 14.5, 16.0, 16.5, 20.0],
-      this.extraPercent = 0.5,
-      this.maxItemsForMaxDistAlgo = 200,
-      this.clusterAlgorithm = ClusterAlgorithm.GEOHASH,
-      this.maxDistParams,
-      this.stopClusteringZoom})
+      {Future<Marker> Function(Cluster<ClusterItem>)? markerBuilder,
+        this.levels = const [1, 4.25, 6.75, 8.25, 11.5, 14.5, 16.0, 16.5, 20.0],
+        this.extraPercent = 0.5,
+        this.maxItemsForMaxDistAlgo = 200,
+        this.clusterAlgorithm = ClusterAlgorithm.GEOHASH,
+        this.maxDistParams,
+        this.stopClusteringZoom})
       : this.markerBuilder = markerBuilder ?? _basicMarkerBuilder,
         assert(levels.length <= precision);
 
   /// Method to build markers
-  final Future<Marker> Function(Cluster<T>) markerBuilder;
+  final Future<Marker> Function(Cluster<ClusterItem>) markerBuilder;
 
   // Num of Items to switch from MAX_DIST algo to GEOHASH
   final int maxItemsForMaxDistAlgo;
@@ -79,12 +91,10 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   void _updateClusters() async {
-    List<Cluster<T>> mapMarkers = await compute(getMarkers, 0);
+    List<Cluster<ClusterItem>> mapMarkers = await getMarkers();
 
-    final Set<Marker> markers = await compute((int value) async {
-      return Set.from(
-          await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
-    }, 0);
+    final Set<Marker> markers =
+    Set.from(await Future.wait(mapMarkers.map((m) => markerBuilder(m))));
 
     updateMarkers(markers);
   }
@@ -110,7 +120,7 @@ class ClusterManager<T extends ClusterItem> {
   }
 
   /// Retrieve cluster markers
-  Future<List<Cluster<T>>> getMarkers(int value) async {
+  Future<List<Cluster<ClusterItem>>> getMarkers() async {
     if (_mapId == null) return List.empty();
 
     final LatLngBounds mapBounds = await GoogleMapsFlutterPlatform.instance
@@ -130,15 +140,17 @@ class ClusterManager<T extends ClusterItem> {
     if (stopClusteringZoom != null && _zoom >= stopClusteringZoom!)
       return visibleItems.map((i) => Cluster<T>.fromItems([i])).toList();
 
-    List<Cluster<T>> markers;
+    List<Cluster<ClusterItem>> markers;
 
     if (clusterAlgorithm == ClusterAlgorithm.GEOHASH ||
         visibleItems.length >= maxItemsForMaxDistAlgo) {
       int level = _findLevel(levels);
-      markers = _computeClusters(visibleItems, List.empty(growable: true),
-          level: level);
+      markers = await compute(_computeClusters, ComputeClusterArgs(
+          inputItems: visibleItems,
+          markerItems: List.empty(growable: true),
+          level: level));
     } else {
-      markers = _computeClustersWithMaxDist(visibleItems, _zoom);
+      markers = await _computeClustersWithMaxDist(visibleItems, _zoom);
     }
 
     return markers;
@@ -166,7 +178,7 @@ class ClusterManager<T extends ClusterItem> {
     return LatLngBounds(
       southwest: LatLng(bounds.southwest.latitude - lat, wLng),
       northeast:
-          LatLng(bounds.northeast.latitude + lat, lng != 0 ? eLng : _maxLng),
+      LatLng(bounds.northeast.latitude + lat, lng != 0 ? eLng : _maxLng),
     );
   }
 
@@ -190,35 +202,33 @@ class ClusterManager<T extends ClusterItem> {
     return 1;
   }
 
-  List<Cluster<T>> _computeClustersWithMaxDist(
-      List<T> inputItems, double zoom) {
-    MaxDistClustering<T> scanner = MaxDistClustering(
-      epsilon: maxDistParams?.epsilon ?? 20,
-    );
+  Future<List<Cluster<ClusterItem>>> _computeClustersWithMaxDist(List<T> inputItems,
+      double zoom) async{
 
-    return scanner.run(inputItems, _getZoomLevel(zoom));
+    return await compute(MaxDistClustering.run,DistClusterArgs(dataset: inputItems, zoomLevel: _getZoomLevel(zoom),epsilon: maxDistParams?.epsilon ?? 20));
   }
 
-  List<Cluster<T>> _computeClusters(
-      List<T> inputItems, List<Cluster<T>> markerItems,
-      {int level = 5}) {
-    if (inputItems.isEmpty) return markerItems;
-    String nextGeohash = inputItems[0].geohash.substring(0, level);
+  static Future<List<Cluster<ClusterItem>>> _computeClusters(ComputeClusterArgs args) async {
+    if (args.inputItems.isEmpty) return args.markerItems;
+    String nextGeohash = args.inputItems[0].geohash.substring(0, args.level);
 
-    List<T> items = inputItems
-        .where((p) => p.geohash.substring(0, level) == nextGeohash)
+    List<ClusterItem> items = args.inputItems
+        .where((p) => p.geohash.substring(0, args.level) == nextGeohash)
         .toList();
 
-    markerItems.add(Cluster<T>.fromItems(items));
+    args.markerItems.add(Cluster<ClusterItem>.fromItems(items));
 
-    List<T> newInputList = List.from(
-        inputItems.where((i) => i.geohash.substring(0, level) != nextGeohash));
+    List<ClusterItem> newInputList = List.from(
+        args.inputItems.where((i) =>
+        i.geohash.substring(0, args.level) != nextGeohash));
 
-    return _computeClusters(newInputList, markerItems, level: level);
+    return _computeClusters(ComputeClusterArgs(inputItems: newInputList,
+        markerItems: args.markerItems,
+        level: args.level));
   }
 
   static Future<Marker> Function(Cluster) get _basicMarkerBuilder =>
-      (cluster) async {
+          (cluster) async {
         return Marker(
           markerId: MarkerId(cluster.getId()),
           position: cluster.location,
@@ -234,7 +244,8 @@ class ClusterManager<T extends ClusterItem> {
       {String? text}) async {
     final PictureRecorder pictureRecorder = PictureRecorder();
     final Canvas canvas = Canvas(pictureRecorder);
-    final Paint paint1 = Paint()..color = Colors.red;
+    final Paint paint1 = Paint()
+      ..color = Colors.red;
 
     canvas.drawCircle(Offset(size / 2, size / 2), size / 2.0, paint1);
 
