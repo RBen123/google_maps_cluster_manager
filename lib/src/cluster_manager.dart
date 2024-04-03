@@ -22,6 +22,7 @@ class ClusterManager<T extends ClusterItem> {
       this.levels = const [1, 4.25, 6.75, 8.25, 11.5, 14.5, 16.0, 16.5, 20.0],
       this.extraPercent = 0.5,
       this.maxItemsForMaxDistAlgo = 200,
+      this.maxVisibleItems = 200,
       this.clusterAlgorithm = ClusterAlgorithm.GEOHASH,
       this.maxDistParams,
       this.stopClusteringZoom})
@@ -33,6 +34,8 @@ class ClusterManager<T extends ClusterItem> {
 
   // Num of Items to switch from MAX_DIST algo to GEOHASH
   final int maxItemsForMaxDistAlgo;
+
+  final int maxVisibleItems;
 
   /// Function to update Markers on Google Map
   final void Function(Set<Marker>) updateMarkers;
@@ -127,7 +130,7 @@ class ClusterManager<T extends ClusterItem> {
 
     if (stopClusteringZoom != null &&
         _zoom >= stopClusteringZoom! &&
-        visibleItems.length < 200)
+        visibleItems.length < maxVisibleItems)
       return visibleItems.map((i) => Cluster<T>.fromItems([i])).toList();
 
     List<Cluster<T>> markers;
